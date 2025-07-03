@@ -1,15 +1,14 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import copy
 from collections import deque
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def pad_or_truncate(tensor, target_size):
-    """Pads or truncates a tensor to a target size.
-
-    If the tensor is smaller than the target size, it pads with zeros.
-    If the tensor is larger, it truncates.
-    """
     if tensor.numel() < target_size:
         padding = torch.zeros(target_size - tensor.numel(), dtype=tensor.dtype, device=tensor.device)
         return torch.cat([tensor, padding])
@@ -17,197 +16,115 @@ def pad_or_truncate(tensor, target_size):
         return tensor[:target_size]
 
 class MemoryBank:
-    """
-    A memory bank to store and retrieve similar feature-prediction pairs.
-    """
     def __init__(self, K):
-        """
-        Initializes the MemoryBank.
-
-        Args:
-            K (int): The maximum capacity of the memory bank.
-        """
         self.K = K
-        self.memory = deque(maxlen=K) # Use deque for efficient appending and popping
+        self.memory = deque(maxlen=K)
 
     def add(self, q, v):
-        """
-        Adds a feature vector and its corresponding prediction to the memory bank.
-
-        Args:
-            q (torch.Tensor): The feature vector.
-            v (torch.Tensor): The prediction corresponding to the feature vector.
-        """
         for i in range(q.size(0)):
-            q_i = q[i].detach().clone().view(-1).unsqueeze(0) # Detach and clone for memory efficiency
-            v_i = v[i].detach().clone().view(-1).unsqueeze(0) # Detach and clone for memory efficiency
+            q_i = q[i].detach().clone().view(-1).unsqueeze(0)
+            v_i = v[i].detach().clone().view(-1).unsqueeze(0)
             self.memory.append((q_i, v_i))
 
     def retrieve(self, q, D):
-        """
-        Retrieves the D most similar feature vectors from the memory bank.
-
-        Args:
-            q (torch.Tensor): The feature vector to compare against.
-            D (int): The number of most similar feature vectors to retrieve.
-
-        Returns:
-            list: A list of the D most similar feature vectors from the memory bank.
-        """
         if len(self.memory) == 0:
             return []
-
         batch_size = q.size(0)
-        keys = torch.stack([item[0] for item in self.memory]).mean(0) # Stack all feature vectors
-        q = q.view(batch_size, -1) # Reshape the query vector
-        distances = F.cosine_similarity(keys, q, dim=1) # Calculate cosine similarity
-        D = min(D, distances.shape[0]) # Ensure D is not larger than the memory size
-        nearest_indices = distances.topk(D, largest=False)[1] # Find indices of top D nearest vectors
-        support_set = [self.memory[i][0] for i in nearest_indices] # Collect the top D nearest vectors
+        keys = torch.cat([item[0] for item in self.memory], dim=0)
+        q = q.view(batch_size, -1)
+        distances = F.cosine_similarity(keys, q, dim=1)
+        D = min(D, distances.shape[0])
+        nearest_indices = distances.topk(D, largest=True)[1]
+        support_set = [self.memory[i][0] for i in nearest_indices]
         return support_set
 
 class TTA(nn.Module):
-    """
-    Implements Test-Time Adaptation (TTA).
-    """
-    def __init__(self, model, base_lr=0.000005):
-        """
-        Initializes the TTA module.
-
-        Args:
-            model (nn.Module): The model to adapt.
-            base_lr (float): Base learning rate for adaptation.
-        """
+    def __init__(self, model, base_lr=0.000005, tau=0.5, lambda_anchor=0.1):
         super().__init__()
-        self.steps = 1 # Number of adaptation steps
-        self.model, self.optimizer = prepare_model_and_optimizer(model,base_lr) # Prepare model and optimizer
-        self.memory_bank = MemoryBank(K=100) # Initialize the memory bank
-        self.base_lr = base_lr # Store the base learning rate
-        self.retrieval_size = 5 # Number of samples to retrieve from the memory bank
+        self.steps = 1
+        self.model, self.optimizer = prepare_model_and_optimizer(model, base_lr)
+        self.frozen_model = copy.deepcopy(model).eval()
+        self.memory_bank = MemoryBank(K=100)
+        self.base_lr = base_lr
+        self.tau = tau
+        self.lambda_anchor = lambda_anchor
+        self.retrieval_size = 5
+        self.dist_min = float('inf')
+        self.dist_max = float('-inf')
+        self.epsilon = 1e-8
+        self.initial_params = {name: param.clone().detach() for name, param in model.named_parameters()}
 
-    # RME-GAN
-    # def forward(self, inputs,  target):
-
-    # ACT-GAN/RadioUNet/REMNet+
-    def forward(self, antenna, builds, target):
-        """
-        Performs forward pass and test-time adaptation.
-
-        Args:
-            antenna (torch.Tensor): Input antenna data.
-            builds (torch.Tensor): Input builds data.
-            target (torch.Tensor): Target data.
-
-        Returns:
-            torch.Tensor: Model output after adaptation.
-        """
+    def forward(self, antenna, builds, target=None):
         for _ in range(self.steps):
-            # RME-GAN
-            # outputs = self.forward_and_adapt(inputs, target) # Perform forward and adapt step
-            # ACT-GAN
-            outputs = self.forward_and_adapt(antenna,builds, target) # Perform forward and adapt step
+            outputs = self.forward_and_adapt(antenna, builds, target)
         return outputs
 
     @torch.enable_grad()
     def rmse(self, x, y):
-        """Computes the Root Mean Squared Error (RMSE)."""
         return torch.sqrt(torch.mean((x - y) ** 2))
 
     @torch.enable_grad()
     def nmse(self, x, y):
-        """Computes the Normalized Mean Squared Error (NMSE)."""
         mse = torch.mean((x - y) ** 2)
         mse_reference = torch.mean((y - 0) ** 2)
-        epsilon = 1e-8
-        if mse_reference.item() < epsilon:
-            mse_reference = epsilon
+        if mse_reference.item() < self.epsilon:
+            mse_reference = torch.tensor(self.epsilon, device=mse.device)
         nmse = mse / mse_reference
         return nmse
 
-
-    # RME-GAN
-    # @torch.enable_grad()
-    # def forward_and_adapt(self, inputs, target):
-    #
-    #     self.optimizer.zero_grad()
-    #
-    #     feats, outputs = self.model(inputs, return_features=True)
-
-
-    # ACT-GAN/RadioUNet/REMNet+
     @torch.enable_grad()
-    def forward_and_adapt(self, antenna, builds, target):
-        """
-        Performs a forward pass, calculates loss, and adapts the model.
+    def forward_and_adapt(self, antenna, builds, target=None):
+        self.optimizer.zero_grad()
+        with torch.no_grad():
+            feats, outputs_pre = self.frozen_model(antenna, builds, return_features=True)
+        feats, outputs = self.model(antenna, builds, return_features=True)
 
-        Args:
-            antenna (torch.Tensor): Input antenna data.
-            builds (torch.Tensor): Input builds data.
-            target (torch.Tensor): Target data.
-
-        Returns:
-            torch.Tensor: Model output after adaptation.
-        """
-        self.optimizer.zero_grad() # Reset the gradients
-        feats, outputs = self.model(antenna, builds, return_features=True) # Get the features and outputs
-
-        rmse_loss = self.rmse(outputs, target) # Calculate RMSE loss
-        nmse_loss = self.nmse(outputs, target) # Calculate NMSE loss
-        loss = (rmse_loss + nmse_loss) / 1 # Calculate the total loss
-
-        print(f"RMSE Loss: {rmse_loss.item()}, NMSE Loss: {nmse_loss.item()}, Total Loss: {loss.item()}")
+        rmse_loss = self.rmse(outputs, outputs_pre.detach())
+        nmse_loss = self.nmse(outputs, outputs_pre.detach())
+        self_cons_loss = 0.5 * rmse_loss + 0.5 * nmse_loss
+        anchor_loss = 0.0
+        for name, param in self.model.named_parameters():
+            anchor_loss += (param - self.initial_params[name]).pow(2).sum()
+        loss = self_cons_loss + self.lambda_anchor * anchor_loss
 
         if not (torch.isnan(feats).any() or torch.isinf(feats).any() or
                 torch.isnan(outputs).any() or torch.isinf(outputs).any()):
-            self.memory_bank.add(feats, outputs) # Add features and outputs to the memory bank
+            self.memory_bank.add(feats, outputs)
 
-        support_set = self.memory_bank.retrieve(feats, D=self.retrieval_size) # Retrieve similar samples from memory
+        support_set = self.memory_bank.retrieve(feats, D=self.retrieval_size)
         if support_set:
-            centers = torch.stack([feats for feats in support_set]).mean(0).to(outputs.device) # Calculate the center of retrieved features
-            centers = F.normalize(centers) # Normalize the center
-            feats = F.normalize(feats).mean(0) # Normalize the input features
-            dist = 1 - F.cosine_similarity(feats.view(-1).unsqueeze(0), centers, dim=1) # Calculate cosine distance
+            centers = torch.stack([feats for feats in support_set]).mean(0).to(outputs.device)
+            centers = F.normalize(centers, dim=-1)
+            feats = F.normalize(feats, dim=-1).mean(0)
+            dist = 1 - F.cosine_similarity(feats.view(-1).unsqueeze(0), centers, dim=1)
             dist = dist.mean()
-
-            tau = 0.5
-            weight_lr = torch.exp(-dist * tau) # Calculate weight for learning rate adjustment
-            adjusted_lr = self.base_lr * weight_lr # Adjust the learning rate
+            self.dist_min = min(self.dist_min, dist.item())
+            self.dist_max = max(self.dist_max, dist.item())
+            dist_normalized = (dist - self.dist_min) / (self.dist_max - self.dist_min + self.epsilon)
+            weight_lr = torch.exp(self.tau * dist_normalized)
+            adjusted_lr = self.base_lr * weight_lr
         else:
-            adjusted_lr = self.base_lr # Use the base learning rate if no support set is found
+            adjusted_lr = self.base_lr
 
         for param_group in self.optimizer.param_groups:
-            param_group['lr'] = adjusted_lr.item() # Set the learning rate for the optimizer
+            param_group['lr'] = adjusted_lr.item()
 
-        loss.backward() # Backpropagate the loss
-        self.optimizer.step() # Update the model parameters
+        if not (torch.isnan(loss).any() or torch.isinf(loss).any()):
+            loss.backward()
+            self.optimizer.step()
+        else:
+            logger.warning("跳过更新，因损失值无效")
 
-        print(f"Adjusted Learning Rate: {adjusted_lr}")
+        logger.info(f"RMSE 损失: {rmse_loss.item():.6f}, NMSE 损失: {nmse_loss.item():.6f}, 总损失: {loss.item():.6f}")
+        logger.info(f"调整后学习率: {adjusted_lr.item():.6f}")
 
         return outputs
 
-def prepare_model_and_optimizer(model,base_lr):
-    """
-    Prepares the model and optimizer for TTA.
-
-    Args:
-        model (nn.Module): The model to adapt.
-
-    Returns:
-        tuple: Model and optimizer.
-    """
-    params = list(model.parameters()) # Get the model parameters
-    optimizer = optim.Adam(params, lr=float(base_lr), betas=(0.9, 0.999), weight_decay=float(0.)) # Initialize the Adam optimizer
+def prepare_model_and_optimizer(model, base_lr):
+    params = list(model.parameters())
+    optimizer = torch.optim.Adam(params, lr=float(base_lr), betas=(0.9, 0.999), weight_decay=0.0)
     return model, optimizer
 
 def setup(model):
-    """
-    Sets up the TTA model.
-
-    Args:
-        model (nn.Module): The model to adapt.
-
-    Returns:
-        TTA: The TTA model.
-    """
-    TTA_model = TTA(model) # Create the TTA model
-    return TTA_model
+    tta_model = TTA(model)
+    return tta_model
