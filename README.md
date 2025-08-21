@@ -31,4 +31,4 @@ In your email, please briefly describe your intended use of the data and model. 
 After receiving the dataset, organize it according to the instructions provided in the access email.
 
 3. Model Testing
-To test the model with TTA and dynamic learning rate adjustment: python test.py --model [model_name]
+To test the model with Online Adaptation and dynamic learning rate adjustment: python test.py --model [model_name]
