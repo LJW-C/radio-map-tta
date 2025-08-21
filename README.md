@@ -1,13 +1,13 @@
-# Robust Radio Map Prediction: An Online  Adaptation Approach with Dynamic Learning Rates
+# Robust Radio Map Prediction: An Online Adaptation Approach with Dynamic Learning Rates
 ## Overview
 
 This project presents a novel approach to improve the accuracy of radio map prediction by leveraging Test-Time Adaptation (TTA). Radio maps are vital for wireless network optimization and resource management. Addressing the limitations of traditional methods that rely on complex model innovation, we propose a TTA technique that enhances prediction precision without retraining the model, offering an efficient and easily integrable solution. This approach dynamically adjusts model parameters during inference, boosting the model's generalization ability and prediction accuracy.
 
-**This work is described in detail in our paper: Research on Radio Map Prediction Accuracy Based on Test-Time Adaptive Method.**
+**This work is described in detail in our paper:Robust Radio Map Prediction: An Online Adaptation Approach with Dynamic Learning Rates.**
 
 ## Key Contributions
 
-*   **Test-Time Adaptation (TTA):** An efficient method to enhance radio map prediction accuracy *without* model retraining, improving generalization and prediction performance through dynamic parameter adjustment during inference.
+*   **Online Adaptation:** An efficient method to enhance radio map prediction accuracy *without* model retraining, improving generalization and prediction performance through dynamic parameter adjustment during inference.
 *   **Novel Scenario Evaluation:** Introduction of three new, challenging scenarios for radio map prediction:
     *   Noise Scenarios
     *   Car Obstruction Scenarios
