@@ -77,7 +77,7 @@ def test_actgan(checkpoint_path="checkpoints/ACT-GAN/G0470000.pt", batch_size=11
     model.eval()
 
     loss_functions = {'MAE': nn.L1Loss(), 'MSE': nn.MSELoss()}
-    TTA = getattr(method, 'TTA').setup(model)
+    OA = getattr(method, 'OA').setup(model)
 
     test_data = loaders.AUGAN_scene1(phase='test')
     test_dataloader = DataLoader(test_data, shuffle=False, pin_memory=True, batch_size=batch_size, num_workers=4,
@@ -89,7 +89,7 @@ def test_actgan(checkpoint_path="checkpoints/ACT-GAN/G0470000.pt", batch_size=11
         build, antenna, target = build.cuda(), antenna.cuda(), target.cuda()
 
         with torch.no_grad():
-            predict_imgs = TTA.forward(build, antenna, target)  # Use TTA module
+            predict_imgs = OA.forward(build, antenna, target)  # Use TTA module
 
             for idx, (prob, tgt) in enumerate(zip(predict_imgs, target)):
                 _MAE, _MSE, _NMSE, _RMSE = compute_losses(prob, tgt, loss_functions)
@@ -137,7 +137,7 @@ def test_rmegan(checkpoint_path="checkpoints/RME-GAN/Trained_ModelMSE_G.pt", bat
     model.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     model.eval()
 
-    TTA = getattr(method, 'TTA').setup(model)
+    OA = getattr(method, 'OA').setup(model)
 
     iteration = 0
     start_time = time.time()
@@ -147,7 +147,7 @@ def test_rmegan(checkpoint_path="checkpoints/RME-GAN/Trained_ModelMSE_G.pt", bat
         inputs = inputs[:, :3, :, :]  # Take only the first three channels
 
         with torch.no_grad():
-            outputs = TTA.forward(inputs, targets)  # Apply TTA
+            outputs = OA.forward(inputs, targets)  
 
             for idx, (prob, tgt) in enumerate(zip(outputs, targets)):
                 _MAE, _MSE, _NMSE, _RMSE = compute_losses(prob, tgt, loss_functions)
@@ -181,7 +181,7 @@ def test_radiounet(checkpoint_path="C:/Users//86156/Desktop/radio map/checkpoint
     model.eval()
 
     loss_functions = {'MAE': nn.L1Loss(), 'MSE': nn.MSELoss()}
-    TTA = getattr(method, 'TTA').setup(model)
+    OA = getattr(method, 'OA').setup(model)
 
     test_data = loaders.RadioUNet_c(phase='test')
     test_dataloader = DataLoader(test_data, shuffle=False, pin_memory=True, batch_size=batch_size, num_workers=4)
@@ -192,7 +192,7 @@ def test_radiounet(checkpoint_path="C:/Users//86156/Desktop/radio map/checkpoint
         build, antenna, target = build.cuda(), antenna.cuda(), target.cuda()
 
         with torch.no_grad():
-            predict_img = TTA.forward(build, antenna, target)
+            predict_img = OA.forward(build, antenna, target)
 
             for idx, (prob, tgt) in enumerate(zip(predict_img, target)):
                 _MAE, _MSE, _NMSE, _RMSE = compute_losses(prob, tgt, loss_functions)
@@ -219,7 +219,7 @@ def test_remnet(checkpoint_path="checkpoints/REM-NET+/Deep_AE.pt", batch_size=12
     model.load_state_dict(torch.load(checkpoint_path, map_location='cuda'))
     model.eval()
 
-    TTA = getattr(method, 'TTA').setup(model)
+    OA = getattr(method, 'OA').setup(model)
 
     # Create test data loader
     test_data = loaders.loader_3D(phase='test')
@@ -232,7 +232,7 @@ def test_remnet(checkpoint_path="checkpoints/REM-NET+/Deep_AE.pt", batch_size=12
 
         # Make prediction
         with torch.no_grad():
-            predict_img = TTA.forward(build, antenna, target)
+            predict_img = OA.forward(build, antenna, target)
 
             for idx, (prob, tgt) in enumerate(zip(predict_img, target)):
                 _MAE, _MSE, _NMSE, _RMSE = compute_losses(prob, tgt, loss_functions)
