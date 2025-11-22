@@ -64,7 +64,7 @@ def eval_model(model, test_loader, cfg=None, infer_img_path=''):
 
 
     model.eval()
-    TTA = getattr(methods, 'OA').setup(model, args)
+    OA = getattr(methods, 'OA').setup(model, args)
     # 初始化指标
     n_samples = 0
     total_MAE = 0
@@ -82,7 +82,7 @@ def eval_model(model, test_loader, cfg=None, infer_img_path=''):
 
         with torch.no_grad():
             # preds = model(inputs)
-            preds = TTA.forward(inputs,targets)
+            preds = OA.forward(inputs,targets)
 
 
             preds = torch.clamp(preds, 0, 1)
