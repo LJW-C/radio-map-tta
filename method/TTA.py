@@ -41,7 +41,7 @@ class MemoryBank:
             
         return support_set
 
-class DLTTA(nn.Module):
+class OA(nn.Module):
     def __init__(self, model, base_lr=0.000005, tau=0.5, lambda_anchor=0.1):
         super().__init__()
         self.steps = 1
@@ -158,5 +158,5 @@ def prepare_model_and_optimizer(model, base_lr):
     return model, optimizer
 
 def setup(model):
-    tta_model = DLTTA(model)
+    tta_model = OA(model)
     return tta_model
