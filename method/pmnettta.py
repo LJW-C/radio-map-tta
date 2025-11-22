@@ -1,4 +1,3 @@
-
 from copy import deepcopy
 import matplotlib.pyplot as plt
 import torch
@@ -14,7 +13,7 @@ import logging
 from torch.optim import SGD
 from torch.optim import Adam
 
-
+# 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class MemoryBank:
         self.memory = deque(maxlen=K)
 
     def add(self, q, v):
-
+        # 【显存优化】务必 detach，否则显存会爆炸
         for i in range(q.size(0)):
             q_i = q[i].detach().clone().view(-1).unsqueeze(0)
             v_i = v[i].detach().clone().view(-1).unsqueeze(0)
@@ -57,19 +56,19 @@ class MemoryBank:
             
         return support_set
 
-class OA(nn.Module):
+class OA_Supervised(nn.Module):
 
     def __init__(self, args, model):
         super().__init__()
         self.args = args
         self.steps = 1
         
+        # 1. 准备可训练的学生模型
         self.model, self.optimizer = prepare_model_and_optimizer(model, args)
         
-        self.frozen_model = deepcopy(self.model).eval()
-        for param in self.frozen_model.parameters():
-            param.requires_grad = False
+        # 【移除】不再需要 frozen_model，因为我们直接用 target 计算 Loss
           
+        # 2. 保存初始参数用于计算 Anchor Loss (依然保留，防止遗忘)
         self.initial_params = {name: param.clone().detach() for name, param in self.model.named_parameters()}
         
         self.base_lr = 0.000008 
@@ -110,23 +109,29 @@ class OA(nn.Module):
     @torch.enable_grad()
     def forward_and_adapt(self, inputs, target):
         self.optimizer.zero_grad()
-        with torch.no_grad():
-            _, outputs_pre = self.frozen_model(inputs, return_features=True)
-            outputs_pre = outputs_pre.detach()
-        feats, outputs = self.model(inputs, return_features=True)
-        rmse_loss = self.rmse(outputs, outputs_pre)
-        nmse_loss = self.nmse(outputs, outputs_pre)
-        self_cons_loss = (rmse_loss + nmse_loss) / 1.0 
 
+        # 1. 获取当前模型输出
+        feats, outputs = self.model(inputs, return_features=True)
+
+        # 2. 【关键修改】计算有监督 Loss (使用真实 target)
+        rmse_loss = self.rmse(outputs, target)
+        nmse_loss = self.nmse(outputs, target)
+        
+        # 在有监督场景下，Loss 就是真实的误差
+        supervised_loss = (rmse_loss + nmse_loss) / 1.0 
+
+        # 3. Anchor Loss (防止对当前 batch 过拟合导致遗忘旧知识)
         anchor_loss = 0.0
         for name, param in self.model.named_parameters():
             if name in self.initial_params:
                 anchor_loss += (param - self.initial_params[name]).pow(2).sum()
 
-        loss = self_cons_loss + self.lambda_anchor * anchor_loss
+        loss = supervised_loss + self.lambda_anchor * anchor_loss
 
-        # logger.info(f"RMSE: {rmse_loss.item():.6f}, NMSE: {nmse_loss.item():.6f}, Total: {loss.item():.6f}")
-
+        # 4. Memory Bank 与 动态学习率 (逻辑保持不变)
+        # 即使有 target，动态学习率依然有用：
+        # 当遇到分布差异大的样本（dist大）时，说明这是一个很难/很新的样本，我们可能希望增大 LR 快速学会它
+        # 或者反过来，如果认为它是异常值，减小 LR (取决于你的策略，目前代码是增大 LR)
         if not (torch.isnan(feats).any() or torch.isinf(feats).any()):
             self.memory_bank.add(feats, outputs)
 
@@ -167,8 +172,6 @@ class OA(nn.Module):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
-
-        # logger.info(f"Adj LR: {adjusted_lr:.8f}")
 
         return outputs
 
@@ -214,7 +217,8 @@ def prepare_model_and_optimizer(model, args):
     return model, optimizer
 
 def setup(model, args):
-    TTA_model = OA(
+    # 这里改名为 OA_Supervised
+    TTA_model = OA_Supervised(
         args,
         model
     )
