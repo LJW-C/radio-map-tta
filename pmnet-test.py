@@ -1,29 +1,40 @@
 from __future__ import print_function, division
 import os
+import time
+#from tkinter import W
 import warnings
-
 warnings.filterwarnings("ignore")
 
 import pandas as pd
 import numpy as np
+from methods import Tent
+# torch
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split
+torch.set_default_dtype(torch.float32)
+
+torch.backends.cudnn.enabled
+from PIL import Image
 from tqdm import tqdm
 from datetime import datetime
+import sys
+
+import argparse
 import importlib
 import json
 import random
 import matplotlib
-
 matplotlib.use('Agg')
 import cv2
-import method
+import matplotlib.pyplot as plt
+import methods
+
 
 
 def set_seed(seed):
-    """Sets the random seed for reproducibility."""
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -31,98 +42,125 @@ def set_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-
 set_seed(13)
 
+# RESULT_FOLDER = '/content/drive/MyDrive/Colab Notebooks/Joohan/PMNet_Extension_Result'
+RESULT_FOLDER = '"F:/doc/code/pmnet-main'
+TENSORBOARD_PREFIX = f'{RESULT_FOLDER}/tensorboard'
 
-def eval_model(model, test_loader, args, infer_img_path=''):
-    """Evaluates the model on the test dataset.
+def L1_loss(pred, target):
+  loss = nn.L1Loss()(pred, target)
+  return loss
 
-    Args:
-        model (nn.Module): The model to evaluate.
-        test_loader (DataLoader): The test data loader.
-        args (object): Arguments object.
-        infer_img_path (str): Path to save inference images.
+def MSE(pred, target):
+  loss = nn.MSELoss()(pred, target)
+  return loss
 
-    Returns:
-        dict: A dictionary containing the evaluation metrics (MAE, MSE, RMSE, NMSE).
-    """
-    # Set model to evaluation mode
+def RMSE(pred, target, metrics=None):
+  loss = (((pred-target)**2).mean())**0.5
+  return loss
+
+def eval_model(model, test_loader, cfg=None, infer_img_path=''):
+
+    # 设置模型为评估模式
     model.eval()
-    TTA = getattr(method, 'pmnettta').setup(model, args)
-    # Initialize metrics
+    TTA = getattr(methods, 'Tent').setup(model, args)
+    # 初始化指标
     n_samples = 0
     total_MAE = 0
     total_MSE = 0
     total_RMSE = 0
     total_NMSE = 0
 
-    pred_cnt = 1  # Start counting from 1
+    pred_cnt = 1  # 从 1 开始计数
 
     for inputs, targets in tqdm(test_loader):
+        iteration = 0
+        iteration += 1
         inputs = inputs.cuda()
         targets = targets.cuda()
 
+        # 对输入应用噪声和随机黑块
+        # inputs = add_noise(inputs, noise_factor=0.05)
+        # inputs = add_white_patches(inputs, horizontal_size=(2, 5), vertical_size=(5, 2), num_patches=30)
+
+        # if infer_img_path != '':
+        #     for i in range(len(inputs)):
+        #         # 将输入张量转换为 NumPy 数组
+        #         input_img = inputs[i][0].cpu().detach().numpy()
+        #
+        #         # 重新缩放到 [0, 255]
+        #         input_img_rescaled = (input_img * 255).astype(np.uint8)
+        #
+        #         # 保存输入图像
+        #         img_name = os.path.join(infer_img_path, 'input_images', f'{pred_cnt}.png')
+        #         cv2.imwrite(img_name, input_img_rescaled)
+        #         pred_cnt += 1
+        #         if pred_cnt % 100 == 0:
+        #             print(f'{img_name} saved')
+
         with torch.no_grad():
-            preds = TTA.forward(inputs, targets)
+            # preds = model(inputs)
+            preds = TTA.forward(inputs,targets)
 
-            # Clamp predictions to [0, 1]
+            #
             preds = torch.clamp(preds, 0, 1)
-
-            # Create directories for saving images
             inference_images_path = os.path.join(os.path.split(args.model_to_eval)[-2], 'inference_images')
             input_images_path = os.path.join(os.path.split(args.model_to_eval)[-2], 'input_images')
             os.makedirs(inference_images_path, exist_ok=True)
             os.makedirs(input_images_path, exist_ok=True)
 
-            # Calculate metrics
+
+            # 计算指标
             MAE = nn.L1Loss()(preds, targets).item()
             MSE = nn.MSELoss()(preds, targets).item()
             RMSE = torch.sqrt(((preds - targets) ** 2).mean()).item()
             NMSE = MSE / (nn.MSELoss()(targets, torch.zeros_like(targets)).item() + 1e-7)
 
-            # Accumulate metrics
+
+
+            # 累加指标
             total_MAE += MAE * inputs.size(0)
             total_MSE += MSE * inputs.size(0)
             total_RMSE += RMSE * inputs.size(0)
             total_NMSE += NMSE * inputs.size(0)
             n_samples += inputs.size(0)
 
-            # Save prediction and label images
+            # 保存预测和标签图像
             if infer_img_path != '':
                 for i in range(len(preds)):
-                    # Convert prediction and label to numpy arrays
+                    # 将预测和标签转换为 numpy 数组
                     pred_img = preds[i][0].cpu().detach().numpy()
                     target_img = targets[i][0].cpu().detach().numpy()
 
-                    # Rescale to [0, 255]
+                    # 重新缩放到 [0, 255]
                     pred_img_rescaled = (pred_img * 255).astype(np.uint8)
                     target_img_rescaled = (target_img * 255).astype(np.uint8)
 
-                    # Combine prediction and label images side by side
+                    # 将预测和标签图像并排组合
                     combined_img = np.hstack((pred_img_rescaled, target_img_rescaled))
 
-                    # Save combined image
+                    # 保存组合后的图像
                     img_name = os.path.join(infer_img_path, 'inference_images', f'{pred_cnt}.png')
                     cv2.imwrite(img_name, combined_img)
                     pred_cnt += 1
                     if pred_cnt % 100 == 0:
                         print(f'{img_name} saved')
 
-    # Calculate average metrics
+    # 计算平均指标
     avg_MAE = total_MAE / n_samples
     avg_MSE = total_MSE / n_samples
     avg_RMSE = total_RMSE / n_samples
     avg_NMSE = total_NMSE / n_samples
 
-    # Print overall metrics
+    # 打印总体指标
     print(f"Overall testing MAE: {avg_MAE}")
     print(f"Overall testing MSE: {avg_MSE}")
     print(f"Overall testing NMSE: {avg_NMSE}")
     print(f"Overall testing RMSE: {avg_RMSE}")
 
-    # Return metric dictionary
+
+    # 返回指标字典
     results = {
         'MAE': avg_MAE,
         'MSE': avg_MSE,
@@ -134,30 +172,24 @@ def eval_model(model, test_loader, args, infer_img_path=''):
 
 
 def load_config_module(module_name, class_name):
-    """Loads a configuration class from a module.
-
-    Args:
-        module_name (str): The name of the module.
-        class_name (str): The name of the configuration class.
-
-    Returns:
-        object: An instance of the configuration class.
-    """
-    module = importlib.import_module(module_name)
-    config_class = getattr(module, class_name)
-    return config_class()
+        module = importlib.import_module(module_name)
+        config_class = getattr(module, class_name)
+        return config_class()
 
 
 if __name__ == "__main__":
-    # Define arguments
+
+    # 手动设置参数，模拟命令行传递的方式
     class Args:
-        data_root = 'C:/Users/86156/Desktop/radio map/data/USC/'  # Data root directory
-        network = 'pmnet_v3'  # Network type: pmnet_v1 or pmnet_v3
-        model_to_eval = 'checkpoints/pmnet/USC_8H_8W.pt'  # Pre-trained model path
-        config = 'config_USC_pmnetV3_V2'  # Configuration class name
+        data_root = 'F:/doc/code/pmnet-main/data/USC/'  # 数据根目录
+        network = 'pmnet_v3'  # 网络类型，pmnet_v1 或 pmnet_v3
+        model_to_eval = 'checkpoints/USC_8H_8W.pt'  # 预训练模型路径
+        config = 'config_USC_pmnetV3_V2'  # 配置类名
+
 
     args = Args()
 
+    # 剩下的代码不变
     print('start')
     cfg = load_config_module(f'config.{args.config}', args.config)
     print(cfg.get_train_parameters())
@@ -169,21 +201,21 @@ if __name__ == "__main__":
 
         data_train = None
         if 'usc' in args.config.lower():
-            from dataloader.loaders import PMnet_usc
+            from dataloader.loader_USC import PMnet_usc
 
             num_of_maps = 19016
             ddf = pd.DataFrame(np.arange(1, num_of_maps))
             ddf.to_csv(csv_file, index=False)
             data_train = PMnet_usc(csv_file=csv_file, dir_dataset=args.data_root)
         elif 'ucla' in args.config.lower():
-            from dataloader.loaders import PMnet_ucla
+            from dataloader.loader_UCLA import PMnet_ucla
 
             num_of_maps = 3776
             ddf = pd.DataFrame(np.arange(1, num_of_maps))
             ddf.to_csv(csv_file, index=False)
             data_train = PMnet_ucla(csv_file=csv_file, dir_dataset=args.data_root)
         elif 'boston' in args.config.lower():
-            from dataloader.loaders import PMnet_boston
+            from dataloader.loader_Boston import PMnet_boston
 
             num_of_maps = 3143
             ddf = pd.DataFrame(np.arange(1, num_of_maps))
@@ -193,44 +225,53 @@ if __name__ == "__main__":
         dataset_size = len(data_train)
 
         train_size = int(dataset_size * cfg.train_ratio)
+        # validation_size = int(dataset_size * 0.1)
         test_size = dataset_size - train_size
         train_dataset, test_dataset = random_split(data_train, [train_size, test_size],
-                                                   generator=torch.Generator(device='cuda'))
+                                                   generator=torch.Generator(device='cpu')) # 改为 cpu
 
-        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8,
-                                  generator=torch.Generator(device='cuda'))
-        test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True, num_workers=8,
-                                 generator=torch.Generator(device='cuda'))
+        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8) # 删掉 generator 参数即可
+        test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True, num_workers=8) # 删掉 generator 参数即可
+        
+
     elif cfg.sampling == 'random':
         pass
 
-    # Initialize PMNet
+    # Initialize PMNet and Load pre-trained weights if given.
     if 'pmnet_v1' == args.network:
-        from model.pmnet.pmnet_v1 import PMNet as Model
+        from models.pmnet_v1 import PMNet as Model
 
+        # init model
         model = Model(
             n_blocks=[3, 3, 27, 3],
             atrous_rates=[6, 12, 18],
             multi_grids=[1, 2, 4],
             output_stride=16, )
 
+        model.cuda()
     elif 'pmnet_v3' == args.network:
-        from model.pmnet.pmnet_v3 import PMNet as Model
+        from models.pmnet_v3 import PMNet as Model
 
+        # init model
         model = Model(
             n_blocks=[3, 3, 27, 3],
             atrous_rates=[6, 12, 18],
             multi_grids=[1, 2, 4],
             output_stride=8, )
-    model.cuda()
-    # Load pre-trained weights
+
+        model.cuda()
+
+    # Load pre-trained weights to evaluate
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.load_state_dict(torch.load(args.model_to_eval))
     model.to(device)
 
-    # Evaluate the model
-    result = eval_model(model, test_loader, args, infer_img_path=os.path.split(args.model_to_eval)[-2])
+    # create inference images directory if not exist
+    # os.makedirs(os.path.join(os.path.split(args.model_to_eval)[-2], 'inference_images'), exist_ok=True)
+
+    result = eval_model(model, test_loader, cfg=None,infer_img_path=os.path.split(args.model_to_eval)[-2])
     result_json_path = os.path.join(os.path.split(args.model_to_eval)[-2], 'result.json')
     with open(result_json_path, 'w') as f:
         json.dump(result, f, indent=4)
     print('Evaluation score: ', result)
+
