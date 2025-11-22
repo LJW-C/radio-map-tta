@@ -24,7 +24,7 @@ def pad_or_truncate(tensor, target_size):
 
 class MemoryBank:
     def __init__(self, K):
-        self.K = K露
+        self.K = K
         self.memory = deque(maxlen=K)
 
     def add(self, q, v):
