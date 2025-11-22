@@ -50,7 +50,7 @@ class MemoryBank:
             
         return support_set
 
-class RMEGANOA(nn.Module):
+class OA(nn.Module):
     def __init__(self, model, base_lr=0.00002, tau=0.5, lambda_anchor=0.1):
         super().__init__()
         self.steps = 1
@@ -249,5 +249,5 @@ def set_named_submodule(model, sub_name, value):
             setattr(module, names[i], value)
 
 def setup(model):
-    TTA_model = RMEGANOA(model)
+    TTA_model = OA(model)
     return TTA_model
