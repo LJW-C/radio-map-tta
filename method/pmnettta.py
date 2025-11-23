@@ -32,7 +32,6 @@ class MemoryBank:
         self.memory = deque(maxlen=K)
 
     def add(self, q, v):
-        # 【显存优化】务必 detach，否则显存会爆炸
         for i in range(q.size(0)):
             q_i = q[i].detach().clone().view(-1).unsqueeze(0)
             v_i = v[i].detach().clone().view(-1).unsqueeze(0)
@@ -56,19 +55,14 @@ class MemoryBank:
             
         return support_set
 
-class OA_Supervised(nn.Module):
+class OA(nn.Module):
 
     def __init__(self, args, model):
         super().__init__()
         self.args = args
         self.steps = 1
         
-        # 1. 准备可训练的学生模型
         self.model, self.optimizer = prepare_model_and_optimizer(model, args)
-        
-        # 【移除】不再需要 frozen_model，因为我们直接用 target 计算 Loss
-          
-        # 2. 保存初始参数用于计算 Anchor Loss (依然保留，防止遗忘)
         self.initial_params = {name: param.clone().detach() for name, param in self.model.named_parameters()}
         
         self.base_lr = 0.000008 
@@ -109,18 +103,12 @@ class OA_Supervised(nn.Module):
     @torch.enable_grad()
     def forward_and_adapt(self, inputs, target):
         self.optimizer.zero_grad()
-
-        # 1. 获取当前模型输出
         feats, outputs = self.model(inputs, return_features=True)
 
-        # 2. 【关键修改】计算有监督 Loss (使用真实 target)
         rmse_loss = self.rmse(outputs, target)
         nmse_loss = self.nmse(outputs, target)
         
-        # 在有监督场景下，Loss 就是真实的误差
         supervised_loss = (rmse_loss + nmse_loss) / 1.0 
-
-        # 3. Anchor Loss (防止对当前 batch 过拟合导致遗忘旧知识)
         anchor_loss = 0.0
         for name, param in self.model.named_parameters():
             if name in self.initial_params:
@@ -128,10 +116,7 @@ class OA_Supervised(nn.Module):
 
         loss = supervised_loss + self.lambda_anchor * anchor_loss
 
-        # 4. Memory Bank 与 动态学习率 (逻辑保持不变)
-        # 即使有 target，动态学习率依然有用：
-        # 当遇到分布差异大的样本（dist大）时，说明这是一个很难/很新的样本，我们可能希望增大 LR 快速学会它
-        # 或者反过来，如果认为它是异常值，减小 LR (取决于你的策略，目前代码是增大 LR)
+
         if not (torch.isnan(feats).any() or torch.isinf(feats).any()):
             self.memory_bank.add(feats, outputs)
 
@@ -217,8 +202,7 @@ def prepare_model_and_optimizer(model, args):
     return model, optimizer
 
 def setup(model, args):
-    # 这里改名为 OA_Supervised
-    TTA_model = OA_Supervised(
+    TTA_model = OA(
         args,
         model
     )
