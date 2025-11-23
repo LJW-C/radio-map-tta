@@ -48,9 +48,8 @@ class OA(nn.Module):
         
         self.model, self.optimizer = prepare_model_and_optimizer(model, base_lr)
         
-        self.frozen_model = copy.deepcopy(model).eval()
-        for param in self.frozen_model.parameters():
-            param.requires_grad = False
+        # 【移除】不再需要 frozen_model，因为直接用 target
+        # self.frozen_model = copy.deepcopy(model).eval()
             
         self.initial_params = {name: param.clone().detach() for name, param in model.named_parameters()}
         
@@ -69,6 +68,7 @@ class OA(nn.Module):
     def forward(self, antenna, builds, target=None):
         outputs = None
         for _ in range(self.steps):
+            # 必须传入 target
             outputs = self.forward_and_adapt(antenna, builds, target)
         return outputs
 
@@ -86,26 +86,29 @@ class OA(nn.Module):
         return nmse
 
     @torch.enable_grad()
-    def forward_and_adapt(self, antenna, builds, target=None):
+    def forward_and_adapt(self, antenna, builds, target):
         self.optimizer.zero_grad()
 
-        with torch.no_grad():
-            _, outputs_pre = self.frozen_model(antenna, builds, return_features=True)
-            outputs_pre = outputs_pre.detach()
+        # 【移除】不再计算 outputs_pre
+        # with torch.no_grad():
+        #     _, outputs_pre = self.frozen_model(antenna, builds, return_features=True)
+        #     outputs_pre = outputs_pre.detach()
 
         feats, outputs = self.model(antenna, builds, return_features=True)
 
-        rmse_loss = self.rmse(outputs, outputs_pre)
-        nmse_loss = self.nmse(outputs, outputs_pre)
+        # 【修改】使用真实 target 计算 Loss
+        rmse_loss = self.rmse(outputs, target)
+        nmse_loss = self.nmse(outputs, target)
         
-        self_cons_loss = 1.0 * rmse_loss + 0.1 * nmse_loss
+        # 有监督 Loss
+        supervised_loss = 1.0 * rmse_loss + 0.1 * nmse_loss
 
         anchor_loss = 0.0
         for name, param in self.model.named_parameters():
             if name in self.initial_params:
                 anchor_loss += (param - self.initial_params[name]).pow(2).sum()
         
-        loss = self_cons_loss + self.lambda_anchor * anchor_loss
+        loss = supervised_loss + self.lambda_anchor * anchor_loss
 
         if not (torch.isnan(feats).any() or torch.isinf(feats).any()):
             self.memory_bank.add(feats, outputs)
@@ -133,6 +136,8 @@ class OA(nn.Module):
                 dist_normalized = (dist_val - self.dist_min) / (self.dist_max - self.dist_min + self.epsilon)
                 weight_lr = math.exp(self.tau * dist_normalized)
                 adjusted_lr = self.base_lr * weight_lr
+        else:
+            adjusted_lr = self.base_lr
 
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = adjusted_lr
