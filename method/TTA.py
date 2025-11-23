@@ -47,9 +47,6 @@ class OA(nn.Module):
         self.steps = 1
         
         self.model, self.optimizer = prepare_model_and_optimizer(model, base_lr)
-        
-        # 【移除】不再需要 frozen_model，因为直接用 target
-        # self.frozen_model = copy.deepcopy(model).eval()
             
         self.initial_params = {name: param.clone().detach() for name, param in model.named_parameters()}
         
@@ -68,7 +65,6 @@ class OA(nn.Module):
     def forward(self, antenna, builds, target=None):
         outputs = None
         for _ in range(self.steps):
-            # 必须传入 target
             outputs = self.forward_and_adapt(antenna, builds, target)
         return outputs
 
@@ -88,19 +84,10 @@ class OA(nn.Module):
     @torch.enable_grad()
     def forward_and_adapt(self, antenna, builds, target):
         self.optimizer.zero_grad()
-
-        # 【移除】不再计算 outputs_pre
-        # with torch.no_grad():
-        #     _, outputs_pre = self.frozen_model(antenna, builds, return_features=True)
-        #     outputs_pre = outputs_pre.detach()
-
         feats, outputs = self.model(antenna, builds, return_features=True)
-
-        # 【修改】使用真实 target 计算 Loss
         rmse_loss = self.rmse(outputs, target)
         nmse_loss = self.nmse(outputs, target)
-        
-        # 有监督 Loss
+
         supervised_loss = 1.0 * rmse_loss + 0.1 * nmse_loss
 
         anchor_loss = 0.0
