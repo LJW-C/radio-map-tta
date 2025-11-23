@@ -9,10 +9,10 @@ import math
 import os
 import logging
 
-__all__ = ["setup"]
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+__all__ = ["setup"]
 
 def pad_or_truncate(tensor, target_size):
     if tensor.numel() < target_size:
@@ -51,17 +51,18 @@ class MemoryBank:
         return support_set
 
 class OA(nn.Module):
-    def __init__(self, model, base_lr=0.00002, tau=0.5, lambda_anchor=0.1):
+    def __init__(self, model, base_lr=0.00002, tau=0.5, lambda_anchor=0.1, mt_alpha=0.999):
         super().__init__()
         self.steps = 1
         self.episodic = False
         
         self.model, self.optimizer = prepare_model_and_optimizer(model)
         
-        self.frozen_model = deepcopy(model).eval()
-        for param in self.frozen_model.parameters():
-            param.requires_grad = False
+        self.model_ema = deepcopy(self.model)
+        for param in self.model_ema.parameters():
+            param.detach_()
 
+        self.mt_alpha = mt_alpha
         self._his = [0]
         self.margin_e = 0
         self.base_lr = base_lr
@@ -103,18 +104,22 @@ class OA(nn.Module):
             raise Exception("cannot reset without saved model/optimizer state")
         load_model_and_optimizer(self.model, self.optimizer, self.model_state, self.optimizer_state)
 
+    def update_ema_variables(self, ema_model, model, alpha_global):
+        for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+            ema_param.data.mul_(alpha_global).add_(param.data, alpha=1 - alpha_global)
+
     @torch.enable_grad()
     def forward_and_adapt(self, inputs, target=None):
         self.optimizer.zero_grad()
         
         with torch.no_grad():
-            _, outputs_pre = self.frozen_model(inputs, return_features=True)
-            outputs_pre = outputs_pre.detach()
+            _, outputs_ema = self.model_ema(inputs, return_features=True)
+            outputs_ema = outputs_ema.detach()
 
         feats, outputs = self.model(inputs, return_features=True)
 
-        rmse_loss = self.rmse(outputs, outputs_pre)
-        nmse_loss = self.nmse(outputs, outputs_pre)
+        rmse_loss = self.rmse(outputs, outputs_ema)
+        nmse_loss = self.nmse(outputs, outputs_ema)
         
         self_cons_loss = 1.0 * rmse_loss + 0.1 * nmse_loss
 
@@ -164,6 +169,8 @@ class OA(nn.Module):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
+
+        self.update_ema_variables(self.model_ema, self.model, self.mt_alpha)
 
         return outputs
 
