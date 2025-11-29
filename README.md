@@ -35,7 +35,7 @@ You can download the datasets for all the above scenarios from the link below:
 
 ## Model
 
-The project utilizes the [RME-GAN / RadioUNet / REMNET] architecture for radio map prediction.
+The project utilizes the [RME-GAN / RadioUNet / PMNET/ REMNET+] architecture for radio map prediction.
 
 ## Usage
 
