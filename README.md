@@ -44,19 +44,18 @@ The project utilizes the [RME-GAN / RadioUNet / REMNET] architecture for radio m
 
 ## Usage
 
-### 1. Requesting Full Pre-trained Model Weights
-Due to size and potential licensing restrictions, the full pre-trained model weights and original base datasets are not directly available in this repository. To request access, please send an email to:
+### 1. Model Weights
+Since our Online Adaptation (OA) method operates strictly during the **inference (test) phase**, no special training is required for the backbone models. 
 
-**ljw199817@163.com**
-
-In your email, please briefly describe your intended use of the data and model. We will provide access upon approval.
+*   **Standard Weights:** You can use any model weights pre-trained on standard datasets (e.g., RadioMapSeer, USC) using the standard training protocols.
+*   **Requesting Our Pre-trained Weights:** If you wish to use the exact pre-trained weights used in our experiments to ensure full reproducibility of the baseline results, please send a request to: **ljw199817@163.com**.
 
 ### 2. Data Preparation
-*   Download the specific scenario datasets from the links provided in the **Datasets** section above.
-*   After extracting the files, organize them according to the directory structure provided in the instructions (or as described in the access email).
+*   Download the specific scenario datasets (Noise, Car Obstruction, Building Absence) from the links provided in the **Datasets** section above.
+*   After extracting the files, organize them into the appropriate data directories (e.g., `./data/test/`).
 
-### 3. Model Testing
-To test the model with Online Adaptation and dynamic learning rate adjustment, run the following command:
+### 3. Model Testing (Online Adaptation)
+To run the evaluation with Online Adaptation and dynamic learning rate adjustment, use the following command. The script will load the pre-trained weights and perform adaptation on-the-fly for each test sample.
 
 ```bash
 python test.py --model [model_name]
