@@ -2,6 +2,7 @@
 ## Overview
 
 This project presents a novel approach to improve the accuracy of radio map prediction by leveraging Online Adaptation. Radio maps are vital for wireless network optimization and resource management. Addressing the limitations of traditional methods that rely on complex model innovation, we propose a Online Adaptation technique that enhances prediction precision without retraining the model, offering an efficient and easily integrable solution. This approach dynamically adjusts model parameters during inference, boosting the model's generalization ability and prediction accuracy.
+<img width="1600" height="900" alt="图1 new" src="https://github.com/user-attachments/assets/c9691d75-c02f-4e1c-916c-6fa4aaf1a9c1" />
 
 **This work is described in detail in our paper:Robust Radio Map Prediction: An Online Adaptation Approach with Dynamic Learning Rates.**
 
