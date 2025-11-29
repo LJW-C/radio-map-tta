@@ -21,22 +21,17 @@ As shown in the image below:
 
 ## Datasets
 
-We sincerely acknowledge the contributions of the authors of the original datasets (RadioMapSeer, USC, etc.). Their high-fidelity simulations served as the foundation for our work. Building upon these benchmarks, we have constructed specific datasets for the challenging scenarios evaluated in our paper.
+We sincerely acknowledge the contributions of the authors of the original datasets (RadioMapSeer, USC, etc.). Their high-fidelity simulations served as the foundation for our work. Building upon these benchmarks, we have constructed specific datasets for the three challenging scenarios evaluated in our paper:
 
-You can download the datasets for the three interference scenarios below:
+1.  **Noise Scenario:** Building maps corrupted with varying levels of Gaussian noise to simulate sensor inaccuracies.
+2.  **Car Obstruction Scenario:** Scenarios simulating transient occlusions caused by vehicles.
+3.  **Building Absence Scenario:** Scenarios simulating abrupt structural changes (missing buildings).
 
-### 1. Noise Scenario Dataset
-*   **Description:** Building maps corrupted with varying levels of Gaussian noise to simulate sensor inaccuracies.
+**Download All Scenario Datasets:**
+You can download the datasets for all the above scenarios from the link below:
+
 *   **Download Link:** [Baidu Netdisk (百度网盘)](https://pan.baidu.com/s/1v2HOKdTOV0kknXEMDx4PAw?pwd=1234)
 *   **Password:** `1234`
-
-### 2. Car Obstruction Scenario Dataset
-*   **Description:** Scenarios simulating transient occlusions caused by vehicles.
-*   **Download Link:** *[Link to be updated soon]*
-
-### 3. Building Absence Scenario Dataset
-*   **Description:** Scenarios simulating abrupt structural changes (missing buildings).
-*   **Download Link:** *[Link to be updated soon]*
 
 ## Model
 
