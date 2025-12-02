@@ -27,12 +27,24 @@ We sincerely acknowledge the contributions of the authors of the original datase
 2.  **Car Obstruction Scenario:** Scenarios simulating transient occlusions caused by vehicles.
 3.  **Building Absence Scenario:** Scenarios simulating abrupt structural changes (missing buildings).
 
-**Download All Scenario Datasets:**
-You can download the datasets for all the above scenarios from the link below:
+**Download noise Scenario Datasets:**
+You can download the datasets for the above scenarios from the link below:
 
 *   **Download Link:** [Baidu Netdisk (百度网盘)](https://pan.baidu.com/s/1v2HOKdTOV0kknXEMDx4PAw?pwd=1234)
-*   **Password:** `1234`
 
+**Download Obstruction Scenario Datasets:**
+You can download the datasets for the above scenarios from the link below:
+
+*   **Download Link:** [Baidu Netdisk (百度网盘)] (https://pan.baidu.com/s/11Npa0KK1AtJgaosFT39Ijg) 
+
+
+**Download building missing Scenario Datasets:**
+You can download the datasets for the above scenarios from the link below:
+
+*   **Download Link:** [Baidu Netdisk (百度网盘)] (https://pan.baidu.com/s/1BrSAzkZMzMgDqkqtD2VruA) 
+
+提取码：1234
+ 
 ## Model
 
 The project utilizes the [RME-GAN / RadioUNet / PMNET/ REMNET+] architecture for radio map prediction.
