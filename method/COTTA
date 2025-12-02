@@ -8,13 +8,10 @@ class CoTTA(nn.Module):
     def __init__(self, model, steps=1, alpha=0.999, lr=0.0002):
         super().__init__()
         self.steps = steps
-        self.alpha = alpha # EMA 系数
+        self.alpha = alpha 
         self.base_lr = lr
 
-        # 1. 学生模型 (可训练)
         self.model, self.optimizer = prepare_model_and_optimizer(model, lr)
-        
-        # 2. 教师模型 (EMA，不可训练)
         self.model_ema = deepcopy(self.model)
         for param in self.model_ema.parameters():
             param.detach_() 
@@ -26,30 +23,16 @@ class CoTTA(nn.Module):
 
     @torch.enable_grad()
     def forward_and_adapt(self, inputs, target):
-        # 1. 教师模型前向 (仅用于正则化/一致性约束)
         with torch.no_grad():
             _, teacher_outputs = self.model_ema(inputs, return_features=True)
             
-        # 2. 学生模型前向
         _, student_outputs = self.model(inputs, return_features=True)
-        
-        # 3. 计算有监督 Loss (Supervised Loss)
         loss_supervised = nn.MSELoss()(student_outputs, target)
-        
-        # 4. (可选) 一致性正则 Loss (Consistency Loss)
-        # 让学生不要偏离平均教师太远，这是 CoTTA 在有监督下的变体核心
-        # 如果去掉这项，就退化成了普通的 SGD 在线学习
         loss_consistency = nn.MSELoss()(student_outputs, teacher_outputs)
-        
-        # 总 Loss: 主要看 Target，兼顾 Teacher
         loss = loss_supervised + 0.1 * loss_consistency 
-        
-        # 5. 更新学生模型
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        
-        # 6. 更新教师模型 (EMA)
         self.update_ema_variables(self.model, self.model_ema, self.alpha)
         
         return student_outputs
